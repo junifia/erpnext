@@ -482,6 +482,7 @@ def get_basic_details(args, item, overwrite_warehouse=True):
 	if item.get("enable_deferred_revenue") or item.get("enable_deferred_expense"):
 		out.update(calculate_service_end_date(args, item))
 
+	frappe.log_error("Wise debug: (before get_conversion_factor)", f"{item.stock_uom} {args.uom}")
 	# calculate conversion factor
 	if item.stock_uom == args.uom:
 		out.conversion_factor = 1.0
@@ -1287,12 +1288,29 @@ def get_conversion_factor(item_code, uom):
 
 	if variant_of:
 		filters["parent"] = ("in", (item_code, variant_of))
-	conversion_factor = frappe.get_all("UOM Conversion Detail", filters, pluck="conversion_factor")
-	if not conversion_factor:
-		stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
-		conversion_factor = [get_uom_conv_factor(uom, stock_uom) or 1]
 
-	return {"conversion_factor": conversion_factor[-1]}
+	conversions_factor = frappe.get_all(
+		"UOM Conversion Detail", filters=filters, fields=["parent", "conversion_factor"]
+	)
+	frappe.log_error("Wise debug: (after get)", conversions_factor)
+	if not conversions_factor:
+		stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
+		conversions_factor = [get_uom_conv_factor(uom, stock_uom) or 1]
+	else:
+		frappe.log_error("Wise debug: (before sort)", conversions_factor)
+		# Sort the array to be sure to have the targeted item_code first
+		def item_code_first_sort(conversion_factor):
+			return 1 - int(conversion_factor["parent"] == item_code)
+
+		conversions_factor.sort(key=item_code_first_sort)
+		frappe.log_error("Wise debug: (after sort)", conversions_factor)
+		conversions_factor = [
+			conversion_factor["conversion_factor"] for conversion_factor in conversions_factor
+		]
+		frappe.log_error("Wise debug: (after map)", conversions_factor)
+
+	frappe.log_error("Wise debug: (first conv)", conversions_factor[0])
+	return {"conversion_factor": conversions_factor[0]}
 
 
 @frappe.whitelist()
